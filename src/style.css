@@ -8,3 +8,7 @@
 @media print{.topbar nav,.controls,.ski-map-tools,.direction-tabs,.select-stay,.button{display:none}body{background:white;color:black}.section{padding:20px 0;break-inside:avoid}.hero{min-height:0}.hero-copy{padding:20px}.hero h1{font-size:60px}.hero-photo{min-height:250px}.total-ticket{print-color-adjust:exact}.map,.ski-map{height:300px}.trip-strip{display:none}footer{background:white;color:black}.stay-card{break-inside:avoid}}
 
 .transport-price-table{margin:24px 0;display:grid;grid-template-columns:1fr 1fr;gap:0 30px}.transport-price-table>div{display:grid;grid-template-columns:1fr auto;gap:6px 15px;border-bottom:1px solid var(--line);padding:16px 0;font-size:.875rem}.transport-price-table small{grid-column:1/-1;color:var(--muted);font-size:.8rem}.stay-map-label{font-weight:700;border-color:var(--orange-dark);color:var(--ink)}.hero-facts strong{white-space:nowrap}@media(max-width:700px){.transport-price-table{grid-template-columns:1fr}}
+
+.panorama-block{margin-bottom:32px}#panorama-map{height:580px;background:#dfe8ed;border:1px solid var(--line)}.panorama-block .footnote{margin-top:12px}@media(max-width:700px){#panorama-map{height:360px}}
+
+.baggage-included{padding:24px 40px;background:#e3f1e9;border-bottom:1px solid #b6d5c4;color:#185439}.baggage-included strong{font-size:1.2rem}.baggage-included p{color:#285a43;font-size:.875rem;margin-top:8px}.included-badge{display:inline-block;color:#b8eed0;font-size:.85rem;font-weight:700;margin-top:12px}@media(max-width:700px){.baggage-included{padding:20px 24px}}
