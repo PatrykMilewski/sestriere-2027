@@ -18,3 +18,5 @@
 .travel-duration{display:grid;grid-template-columns:1fr 1.2fr;gap:32px;background:white;border-left:5px solid var(--orange);padding:28px;margin-bottom:32px}.travel-duration strong{display:block;font-family:"Barlow Condensed",sans-serif;font-size:2.8rem;line-height:1.1;margin-bottom:14px}.travel-duration p{font-size:.9rem}.travel-duration .footnote{font-size:.78rem;margin-top:12px}@media(max-width:700px){.travel-duration{grid-template-columns:1fr;gap:18px;padding:22px}}
 
 .segmented[aria-label="Termin wyjazdu"]{flex-wrap:wrap;max-width:100%}
+
+.quote-evidence{font-size:.75rem;margin-top:12px;overflow-wrap:anywhere}.quote-evidence summary{cursor:pointer;font-weight:600}.quote-evidence p{margin:10px 0}.quote-evidence a{display:inline-block}.stay-price,.group-price-grid>div{min-width:0;overflow-wrap:anywhere}.group-price-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.compare-week{min-width:0;overflow-wrap:anywhere}.compare-week a{font-size:.75rem}.ski-map-tools button:disabled{opacity:.75}

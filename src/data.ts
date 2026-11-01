@@ -80,8 +80,6 @@ export interface Stay {
   description: string;
   layout: string;
   rating: string;
-  prices: Record<Week, Record<Party, number | null>>;
-  flexible: Record<Week, Record<Party, number | null>>;
   coords: [number, number] | null;
   locationNote: string;
 }
@@ -95,21 +93,9 @@ export const stays: Stay[] = [
     description: "Kuchnia, pralka i własny salon. Propozycja bazy do wspólnego gotowania i wieczorów w miejscowości.",
     layout: "30 m² · sypialnia z łóżkiem podwójnym + rozkładana sofa w salonie",
     rating: "8,8 / 10 · 8 opinii",
-    prices: {
-      feb: { 2: null, 4: null },
-      march: { 2: null, 4: null },
-      early: { 2: 885, 4: null },
-      late: { 2: 969, 4: null },
-    },
-    flexible: {
-      feb: { 2: null, 4: null },
-      march: { 2: null, 4: null },
-      early: { 2: 994, 4: null },
-      late: { 2: 1089, 4: null },
-    },
     coords: [44.961097, 6.882945],
     locationNote:
-      "Via Terzo Reggimento Alpini 5. Booking odczytany 01.11.2026 pokazał brak dostępności dla 4 dorosłych w obu styczniowych terminach; ceny dla 2 osób pozostają archiwalnymi odczytami z września, bez aktualnej weryfikacji. Punkt według mapy Booking, nie pomiar wejścia. 200 m dotyczy stoku; limit 500 m do użytecznego wyciągu wymaga potwierdzenia drogi pieszej. Check-in 16:00–21:00, check-out 09:00–11:00 — wcześniejsze wyjście ustalić z gospodarzem.",
+      "Via Terzo Reggimento Alpini 5. Aktualna dostępność i warunki zależą od terminu oraz obsady; odczyty są pokazane przy cenach. Punkt według mapy Booking, nie pomiar wejścia. 200 m dotyczy stoku; limit 500 m do użytecznego wyciągu wymaga potwierdzenia drogi pieszej. Check-in 16:00–21:00, check-out 09:00–11:00 — wcześniejsze wyjście ustalić z gospodarzem.",
   },
   {
     id: "nube",
@@ -119,23 +105,11 @@ export const stays: Stay[] = [
     distance: "ok. 30 m do wyciągu wg oferty",
     description:
       "Najbliżej wyciągu. Oddzielna miejscowość Borgata: wieczorne wyjścia w centrum Sestriere wymagają dojazdu.",
-    layout: "2 os.: pokój 21 m² · 4 os.: apartament 27 m², łóżko podwójne + piętrowe",
-    rating: "7,8 / 10 · 172 opinie",
-    prices: {
-      feb: { 2: null, 4: 1687 },
-      march: { 2: null, 4: 1428 },
-      early: { 2: 717, 4: 1302 },
-      late: { 2: 717, 4: 1302 },
-    },
-    flexible: {
-      feb: { 2: null, 4: 1869 },
-      march: { 2: null, 4: 1582 },
-      early: { 2: 854, 4: 1435 },
-      late: { 2: 854, 4: 1435 },
-    },
+    layout: "2 i 4 os.: publiczna oferta całego apartamentu 27 m², łóżko podwójne + piętrowe",
+    rating: "7,9 / 10 · 172 opinie",
     coords: [44.9701669, 6.893082],
     locationNote:
-      "Via del Colle 11, Borgata Sestriere. Ceny dla 4 dorosłych we wszystkich czterech terminach sprawdzono 01.11.2026; dla 2 osób pozostają odczytami wrześniowymi. Punkt według mapy Booking. Oferta ski-to-door; wyciąg Nube d’Argento 30 m, Nuova Nube 200 m. Cena dla 2 i 4 osób dotyczy różnych typów lokalu. Autobus 285 kończy na Sestriere Parcheggio: dodatkowy transfer do Borgata i jego cena nie zostały potwierdzone, nie są w sumie kosztorysu.",
+      "Via del Colle 11, Borgata Sestriere. Ceny dla 2 i 4 dorosłych we wszystkich czterech terminach sprawdzono 01.11.2026. Punkt według mapy Booking. Oferta ski-to-door; wyciąg Nube d’Argento 30 m, Nuova Nube 200 m. Publiczne ceny dla 2 i 4 osób dotyczą apartamentu 27 m²; tańsze taryfy partnerskie i wymagające logowania pominięto. Autobus 285 kończy na Sestriere Parcheggio: dodatkowy transfer do Borgata i jego cena nie zostały potwierdzone, nie są w sumie kosztorysu.",
   },
 ];
 export function booking(stay: Stay, week: Week, party: Party): string {

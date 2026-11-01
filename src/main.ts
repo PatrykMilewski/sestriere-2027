@@ -1,33 +1,62 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./style.css";
-import { groupBooking, groupStays, type LodgingParty } from "./group-stays";
 import {
   airfare,
   booking,
   flightCost,
   flightFareDate,
   flightFareNote,
-  flightQuotes,
-  snowboardReserve,
   flightLink,
+  flightQuotes,
   fx,
+  type Party,
+  type Stay,
+  snowboardReserve,
   sources,
   stays,
+  type Week,
   weeks,
   wizzLink,
-  type Party,
-  type Week,
 } from "./data";
+import { groupBooking, groupStays, type LodgingParty } from "./group-stays";
 
+import {
+  escapeHtml,
+  flexiblePrice,
+  type LodgingQuote,
+  lodgingCheckedDate,
+  lodgingDetails,
+  lodgingPrice,
+  lodgingQuote,
+  lodgingStatus,
+} from "./lodging";
+
+const weekOrder: Week[] = ["early", "late", "feb", "march"];
+const calculatorStays: Stay[] = [
+  ...stays,
+  ...groupStays
+    .filter(
+      (stay) =>
+        !stays.some((mainStay) => mainStay.id === stay.id) &&
+        weekOrder.some((date) => lodgingPrice(lodgingQuote(stay.id, date, 4)) !== null),
+    )
+    .map((stay) => ({
+      ...stay,
+      description: stay.note,
+      rating: "Układ i warunki opisane poniżej",
+      coords: null,
+      locationNote: `Brak zweryfikowanego punktu na mapie. ${stay.note}`,
+    })),
+];
 let party: Party = 2;
 let week: Week = "early";
-let selectedStay = "casa";
+let selectedStay = "";
 const money = (n: number) => new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 0 }).format(n);
 const pln = (n: number) => `${money(n)} zł`;
 const eur = (n: number) => `${new Intl.NumberFormat("pl-PL", { maximumFractionDigits: 2 }).format(n)} €`;
 const external = (url: string, text: string, cls = "") =>
-  `<a class="${cls}" href="${url}" target="_blank" rel="noopener noreferrer">${text} <span aria-hidden="true">↗</span></a>`;
+  `<a class="${cls}" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${text} <span aria-hidden="true">↗</span></a>`;
 function element(id: string): HTMLElement {
   const node = document.getElementById(id);
   if (!node) throw new Error(`Missing element: ${id}`);
@@ -46,19 +75,35 @@ function shell(): string {
   <div class="controls"><div><span class="control-label">Jedzie nas</span><div class="segmented" role="group" aria-label="Liczba osób"><button data-party="2" aria-pressed="true">2 osoby</button><button data-party="4" aria-pressed="false">4 osoby</button></div></div><div><span class="control-label">Termin · 2027</span><div class="segmented" role="group" aria-label="Termin wyjazdu"><button data-week="early" aria-pressed="true">16–23 sty</button><button data-week="late" aria-pressed="false">23–30 sty</button><button data-week="feb" aria-pressed="false">6–13 lut</button><button data-week="march" aria-pressed="false">6–13 mar</button></div></div><div class="exchange"><b>1 € = 4,30 zł</b><span>Kurs do planowania, nie kurs banku</span></div></div><div id="budget" aria-live="polite"></div><div id="comparison"></div></section>
   <section class="section flight-section" id="loty">${heading("GDN ↔ TRN", "Loty. Walizka. Snowboardy.", "Na parę: jedna wspólna walizka 20 kg oraz po jednym pokrowcu snowboardowym na osobę.")}<div id="flights"></div></section>
   ${transportSection()}
-  <section class="section" id="noclegi">${heading("02 / BAZA W GÓRACH", "Klucze do dobrego tygodnia.", "Cena na osobę za 7 nocy, przy podanej liczbie osób w lokalu. Sprawdź układ łóżek: sofa w Casa Rossa, łóżko piętrowe w Nube.")}<div id="stays"></div><div id="group-stays"></div><p class="footnote">Nube dla 4 osób: noclegi odczytane 01.11.2026. Casa Rossa dla 4 osób niedostępna w obu styczniowych terminach według Booking. Pozostałe ceny noclegów są odczytami 19–22.09.2026 i nie potwierdzają aktualnej dostępności. Odległości według opisów ofert, nie pomiaru zimowej drogi pieszej. Nic nie zostało zarezerwowane.</p></section>
+  <section class="section" id="noclegi">${heading("02 / BAZA W GÓRACH", "Klucze do dobrego tygodnia.", "Cena na osobę za 7 nocy, przy podanej liczbie osób w lokalu. Każda oferta ma własny odczyt dla terminu i liczby dorosłych; sprawdź układ łóżek i warunki.")}<div id="stays"></div><div id="group-stays"></div><p class="footnote">Noclegi odczytane 01.11.2026, 15:55–15:58. Kwoty dotyczą całego lokalu za 7 nocy, dla dokładnej obsady; podział na osobę pokazano osobno. Ceny zawierają podatki i opłaty widoczne w tabeli Booking. Zwrotna kaucja Hostdomus 300 € jest osobna. Tańsze oferty partnerskie i wymagające logowania pominięto. Odległości według opisów ofert, nie pomiaru zimowej drogi pieszej. Nic nie zostało zarezerwowane.</p></section>
   ${skiSection()}${itinerarySection()}${sourceSection()}</main>
   <footer><a class="brand" href="#">▲ ALPY / 27</a><p>Plan dla ekipy · Sestriere, styczeń–marzec 2027<br>Loty eSky: ${flightFareDate}. Bagaż i pozostałe dane historyczne opisane osobno.</p><a href="#plan">Wróć do kosztów ↑</a></footer>`;
 }
-function totals(target: Week = week) {
-  const stay = stays.find((s) => s.id === selectedStay) ?? stays[0];
-  const room = stay.prices[target][party];
+function cheapestStay(target: Week = week): Stay | undefined {
+  let cheapest: Stay | undefined;
+  let lowestPrice = Number.POSITIVE_INFINITY;
+  for (const stay of calculatorStays) {
+    const price = lodgingPrice(lodgingQuote(stay.id, target, party));
+    if (price !== null && price < lowestPrice) {
+      cheapest = stay;
+      lowestPrice = price;
+    }
+  }
+  return cheapest;
+}
+function totals(target: Week = week, selected = calculatorStays.find((stay) => stay.id === selectedStay)) {
+  const stay = selected;
+  const quote = stay ? lodgingQuote(stay.id, target, party) : undefined;
+  const room = lodgingPrice(quote);
   const flight = flightCost(target);
   const pass = weeks[target].pass;
   const transport = party * 190;
   const food = party * 850;
   const core = room !== null && pass !== null ? room * fx + flight * party + pass * fx * party + transport : null;
-  return { stay, room, flight, pass, transport, food, core };
+  return { stay, quote, room, flight, pass, transport, food, core };
+}
+function quoteEvidence(quote: LodgingQuote | undefined): string {
+  return `<details class="quote-evidence"><summary>Odczyt i warunki</summary><p>${escapeHtml(lodgingDetails(quote))}</p>${quote?.source ? external(quote.source, "Źródło · dokładne daty i obsada") : ""}</details>`;
 }
 function budgetMarkup(): string {
   const t = totals();
@@ -69,9 +114,9 @@ function budgetMarkup(): string {
       `Na osobę w obie strony · bilet i opłata eSky z ${flightFareDate} + szacunek własnego snowboardu i ½ walizki 20 kg według stawek z września. Cena grupy ${party} osób niepotwierdzona.`,
     ],
     [
-      t.stay.name,
-      t.room === null ? "Cena niepotwierdzona" : `${pln((t.room * fx) / party)} <small>${eur(t.room / party)}</small>`,
-      `Na osobę za 7 nocy · lokal dzielony przez ${party} osoby · bez wyżywienia · bezzwrotnie`,
+      t.stay?.name ?? "Nocleg",
+      t.room === null ? lodgingStatus(t.quote) : `${pln((t.room * fx) / party)} <small>${eur(t.room / party)}</small>`,
+      `Na osobę za 7 nocy · ${t.room === null ? lodgingStatus(t.quote) : `cały lokal ${eur(t.room)} dla ${party} osób · bezzwrotnie · odczyt ${lodgingCheckedDate}`}`,
     ],
     [
       "Skipass Vialattea",
@@ -84,15 +129,13 @@ function budgetMarkup(): string {
       `Na osobę · lotnisko–Sestriere–lotnisko · przejazdy i bagaże · szacunek`,
     ],
   ];
-  return `<div class="budget-layout"><div class="budget-table">${rows.map(([title, price, desc]) => `<div class="cost-row"><div><h3>${title}</h3><p>${desc}</p></div><strong>${price}</strong></div>`).join("")}<div class="budget-extra"><span>Jedzenie: dodatkowo ok. <b>${pln(t.food / party)}</b> / osoba</span><span>Ubezpieczenie sportowe, nośnik skipassu i dojazd do GDN: osobno</span></div></div><aside class="total-ticket"><div class="ticket-top"><span>WYBRANY WARIANT</span><b>${party} OS.</b></div><p>${weeks[week].label} 2027</p><span class="total-label">Loty + nocleg + skipass + transport</span><span class="included-badge">Bagaż i transfer: szacunek</span><strong class="total-number">${t.core === null ? "—" : money(t.core / party)}<span>${t.core === null ? "" : " zł"}</span></strong><div class="ticket-per">${t.core === null ? "Brakuje danych do zsumowania wariantu." : "na osobę za cały wyjazd"}</div><p class="ticket-note">${t.core === null ? "Otwórz linki do ofert poniżej. Brak ceny nie oznacza braku miejsc." : `Z jedzeniem: ok. ${pln((t.core + t.food) / party)} na osobę. Suma zawiera szacunkową rezerwę transportową.${selectedStay === "nube" ? " Dojazd Sestriere–Borgata dodatkowo: koszt niepotwierdzony." : ""}`}</p><div class="ticket-bottom">7 NOCY <span>✳</span> 6 DNI JAZDY</div></aside></div>`;
+  return `<div class="budget-layout"><div class="budget-table">${rows.map(([title, price, desc]) => `<div class="cost-row"><div><h3>${title}</h3><p>${desc}</p></div><strong>${price}</strong></div>`).join("")}${quoteEvidence(t.quote)}<div class="budget-extra"><span>Jedzenie: dodatkowo ok. <b>${pln(t.food / party)}</b> / osoba</span><span>Ubezpieczenie sportowe, nośnik skipassu i dojazd do GDN: osobno</span></div></div><aside class="total-ticket"><div class="ticket-top"><span>WYBRANY WARIANT</span><b>${party} OS.</b></div><p>${weeks[week].label} 2027</p><span class="total-label">Loty + nocleg + skipass + transport</span><span class="included-badge">Bagaż i transfer: szacunek</span><strong class="total-number">${t.core === null ? "—" : money(t.core / party)}<span>${t.core === null ? "" : " zł"}</span></strong><div class="ticket-per">${t.core === null ? "Brakuje danych do zsumowania wariantu." : "na osobę za cały wyjazd"}</div><p class="ticket-note">${t.core === null ? "Otwórz linki do ofert poniżej. Brak ceny nie oznacza braku miejsc." : `Z jedzeniem: ok. ${pln((t.core + t.food) / party)} na osobę. Suma zawiera szacunkową rezerwę transportową.${t.stay?.area.startsWith("Borgata") ? " Dojazd Sestriere–Borgata dodatkowo: koszt niepotwierdzony." : ""}`}</p><div class="ticket-bottom">7 NOCY <span>✳</span> 6 DNI JAZDY</div></aside></div>`;
 }
 function comparisonMarkup(): string {
-  return `<div class="comparison"><div><p class="eyebrow">CZTERY TERMINY</p><h3>Porównaj koszt na osobę.</h3><p>Ten sam wybrany nocleg i liczba osób. Loty Wizz, własny snowboard, ½ walizki 20 kg, 7 noclegów, 6 dni skipassa i rezerwa transportowa. Bilety i opłaty eSky: ${flightFareDate}; bagaż we wszystkich terminach jest rezerwą według stawek z września. Aktualne noclegi potwierdzono tylko dla 4 osób w Nube d’Argento; inne widoczne wyceny są archiwalne. Brakujących cen nie liczymy jako zero.</p></div><div class="compare-weeks">${(
-    ["early", "late", "feb", "march"] as Week[]
-  )
-    .map((w) => {
-      const t = totals(w);
-      return `<div class="compare-week ${w === week ? "selected" : ""}"><span>${weeks[w].label}</span><strong>${t.core === null ? "Niepełna wycena" : pln(t.core / party)}</strong><small>na osobę · grupa ${party} osób · ${t.stay.name}</small><small>Bilet + opłata eSky: ${pln(airfare(w))}/os., bez płatnego bagażu</small></div>`;
+  return `<div class="comparison"><div><p class="eyebrow">CZTERY TERMINY</p><h3>Porównaj koszt na osobę.</h3><p>Najtańszy sprawdzony publiczny nocleg z tego katalogu dla ${party} osób, osobno dla każdego terminu. Loty Wizz, własny snowboard, ½ walizki 20 kg, 7 noclegów, 6 dni skipassa i rezerwa transportowa. Bilety i opłaty eSky: ${flightFareDate}; bagaż jest rezerwą według stawek z września. Noclegi: ${lodgingCheckedDate}. Cena całej grupy w samolocie i transfer Sestriere–Borgata niepotwierdzone; brakujących cen nie liczymy jako zero.</p></div><div class="compare-weeks">${weekOrder
+    .map((date) => {
+      const t = totals(date, cheapestStay(date));
+      return `<div class="compare-week ${date === week ? "selected" : ""}"><span>${weeks[date].label}</span><strong>${t.core === null ? "Niepełna wycena" : pln(t.core / party)}</strong><small>na osobę · grupa ${party} osób · ${escapeHtml(t.stay?.name ?? "Brak dostępnej oferty")}</small><small>Bilet + opłata eSky: ${pln(airfare(date))}/os., bez płatnego bagażu</small>${t.quote ? external(t.quote.source, "Sprawdzony nocleg") : ""}</div>`;
     })
     .join("")}</div></div>`;
 }
@@ -105,42 +148,29 @@ function flightsMarkup(): string {
 function alternativeFlightMarkup(): string {
   return `<div class="transport-note"><b>Archiwalna alternatywa Buzz · wrzesień 2026</b><p>Archiwalny odczyt Skyscannera z września pokazywał bilety na osobę w obie strony od 575 zł (16–23 sty) i 313,50 zł (23–30 sty), po podziale oferty dla 2 osób, bez wymaganej walizki i snowboardów. Godziny: 14:05–16:20 oraz 16:45–19:00. Pełny koszt bagaży i dojazd po późniejszym lądowaniu wymagają potwierdzenia. Dlatego rekomendacja terminu powyżej dotyczy porównania Wizz, nie gwarancji najtańszego wariantu wszystkich linii. ${external(flightLink("late", party), "Sprawdź Buzz na drugi termin")}</p></div>`;
 }
+function stayPriceMarkup(stay: Stay, count: Party): string {
+  const quote = lodgingQuote(stay.id, week, count);
+  const price = lodgingPrice(quote);
+  const flexible = flexiblePrice(quote);
+  return `<div class="stay-price ${count === party ? "active" : ""}" data-property="${stay.id}" data-party="${count}" data-status="${quote?.status ?? "unverified"}"><span>${count} osoby / 7 nocy</span><strong>${price === null ? lodgingStatus(quote) : pln((price * fx) / count)}</strong><small>${price === null ? "Bez bieżącej ceny w kosztorysie" : `${eur(price / count)} na osobę · cały lokal ${eur(price)}`}</small>${flexible === null ? "" : `<small>Elastyczna: ${eur(flexible)} za lokal · ${eur(flexible / count)} / osoba</small>`}${external(quote?.source ?? booking(stay, week, count), `Oferta dla ${count} osób`)}${quoteEvidence(quote)}</div>`;
+}
 function staysMarkup(): string {
-  return stays
-    .map(
-      (stay, index) =>
-        `<article class="stay-card ${stay.id === selectedStay ? "chosen" : ""}"><div class="stay-index">0${index + 1}<span>${stay.id === selectedStay ? "W KOSZTORYSIE" : "ALTERNATYWA"}</span></div><div class="stay-info"><p class="eyebrow">${stay.area}</p><h3>${stay.name}</h3><div class="stay-badges"><span>${stay.distance}</span><span>${stay.rating}</span></div><p>${stay.description}</p><p class="layout-note">${stay.layout}</p><details><summary>Lokalizacja i warunki</summary><p>${stay.locationNote}</p><p>Kwoty podstawowe: bezzwrotne, bez wyżywienia, z podatkami i opłatami pokazanymi przez Booking. Termin bezpłatnego anulowania taryfy elastycznej sprawdź w ofercie dla wybranego tygodnia.</p></details></div><div class="stay-prices">${(
-          [2, 4] as Party[]
-        )
-          .map((n) => {
-            const price = stay.prices[week][n];
-            const flexible = stay.flexible[week][n];
-            return `<div class="stay-price ${n === party ? "active" : ""}"><span>${n} osoby / 7 nocy</span><strong>${price === null ? "Sprawdź ofertę" : pln((price * fx) / n)}</strong><small>${price === null ? "Cena niepotwierdzona" : `${eur(price / n)} na osobę / 7 nocy`}</small>${flexible === null ? "" : `<small>Elastyczna: ${eur(flexible / n)} na osobę</small>`}${external(booking(stay, week, n), `Oferta dla ${n} osób`)}</div>`;
-          })
-          .join(
-            "",
-          )}<button class="select-stay" data-stay="${stay.id}" ${stay.id === selectedStay ? "disabled" : ""}>${stay.id === selectedStay ? "Wybrany do kosztorysu ✓" : "Uwzględnij w kosztorysie"}</button></div></article>`,
-    )
+  return calculatorStays
+    .map((stay, index) => {
+      const available = lodgingPrice(lodgingQuote(stay.id, week, party)) !== null;
+      const chosen = stay.id === selectedStay;
+      return `<article class="stay-card ${chosen ? "chosen" : ""}"><div class="stay-index">0${index + 1}<span>${chosen ? "W KOSZTORYSIE" : "ALTERNATYWA"}</span></div><div class="stay-info"><p class="eyebrow">${escapeHtml(stay.area)}</p><h3>${escapeHtml(stay.name)}</h3><div class="stay-badges"><span>${escapeHtml(stay.distance)}</span><span>${escapeHtml(stay.rating)}</span></div><p>${escapeHtml(stay.description)}</p><p class="layout-note">${escapeHtml(stay.layout)}</p><details><summary>Lokalizacja</summary><p>${escapeHtml(stay.locationNote)}</p></details></div><div class="stay-prices">${([2, 4] as Party[]).map((count) => stayPriceMarkup(stay, count)).join("")}<button class="select-stay" data-stay="${stay.id}" ${chosen || !available ? "disabled" : ""}>${chosen ? "Wybrany do kosztorysu ✓" : available ? "Uwzględnij w kosztorysie" : "Brak bieżącej oferty dla tej grupy"}</button></div></article>`;
+    })
     .join("");
 }
+function groupPriceMarkup(stay: (typeof groupStays)[number], count: LodgingParty): string {
+  const quote = lodgingQuote(stay.id, week, count);
+  const price = lodgingPrice(quote);
+  const flexible = flexiblePrice(quote);
+  return `<div data-property="${stay.id}" data-party="${count}" data-status="${quote?.status ?? "unverified"}"><span>Przy ${count} osobach</span><strong>${price === null ? lodgingStatus(quote) : pln((price * fx) / count)}</strong><small>${price === null ? (count > stay.capacity ? `Limit katalogowy: ${stay.capacity} osób; bez osobnego wyszukiwania` : "Bez bieżącej ceny") : `${eur(price / count)} / osoba / 7 nocy · cały lokal ${eur(price)}`}</small>${flexible === null ? "" : `<small>Elastyczna: ${eur(flexible)} za lokal</small>`}${quote?.status === "capacity" ? "" : external(quote?.source ?? groupBooking(stay, week, count), `Oferta · ${count} osób`)}${quoteEvidence(quote)}</div>`;
+}
 function groupStaysMarkup(): string {
-  return `<div class="group-stays-heading"><p class="eyebrow">WIĘKSZA EKIPA · ${weeks[week].label} 2027</p><h3>Więcej noclegów dla 4, 5 i 6 osób</h3><p>Ceny na osobę za 7 nocy. To porównanie samych noclegów; kosztorys całego wyjazdu powyżej obejmuje warianty dla 2 i 4 osób. Zmiana terminu na górze strony aktualizuje także te oferty.</p></div><div class="group-stays-grid">${groupStays
-    .map(
-      (stay) =>
-        `<article class="group-stay-card"><p class="eyebrow">${stay.area}</p><h3>${stay.name}</h3><p class="group-distance">${stay.distance}</p><p>${stay.layout}</p><div class="group-price-grid">${(
-          [4, 5, 6] as LodgingParty[]
-        )
-          .map((count) => {
-            const price = stay.prices[week][count];
-            return `<div><span>Przy ${count} osobach</span><strong>${count > stay.capacity ? "Za mały lokal" : price === undefined ? "Do sprawdzenia" : pln((price * fx) / count)}</strong><small>${count > stay.capacity ? "Lokal dla maks. " + stay.capacity + " osób" : price === undefined ? "Brak potwierdzonej ceny" : `${eur(price / count)} / osoba / 7 nocy`}</small>${count <= stay.capacity ? external(groupBooking(stay, week, count), `Oferta · ${count} osób`) : ""}</div>`;
-          })
-          .join(
-            "",
-          )}</div><details><summary>Co obejmuje cena i ważne warunki</summary><p>${stay.note}</p></details></article>`,
-    )
-    .join(
-      "",
-    )}</div><p class="footnote">Nube dla 4 osób we wszystkich czterech terminach: 01.11.2026. Pozostałe wyceny tej sekcji: wrzesień 2026, bez ponownego potwierdzenia. Taryfa i zasady anulowania są opisane przy każdym obiekcie. Ceny i dostępność mogą się zmienić. Odległości podane przez obiekty/Booking, nie pomiar zimowego dojścia.</p>`;
+  return `<div class="group-stays-heading"><p class="eyebrow">WIĘKSZA EKIPA · ${weeks[week].label} 2027</p><h3>Więcej noclegów dla 4, 5 i 6 osób</h3><p>Odczyty ${lodgingCheckedDate}, 15:55–15:58. Cena na osobę i całego lokalu za 7 nocy. Każda obsada ma osobną wycenę. Kosztorys całego wyjazdu powyżej obejmuje 2 i 4 osoby; zmiana terminu aktualizuje również tę tabelę.</p></div><div class="group-stays-grid">${groupStays.map((stay) => `<article class="group-stay-card"><p class="eyebrow">${escapeHtml(stay.area)}</p><h3>${escapeHtml(stay.name)}</h3><p class="group-distance">${escapeHtml(stay.distance)}</p><p>${escapeHtml(stay.layout)}</p><div class="group-price-grid">${([4, 5, 6] as LodgingParty[]).map((count) => groupPriceMarkup(stay, count)).join("")}</div><details><summary>Lokalizacja i dodatkowe informacje</summary><p>${escapeHtml(stay.note)}</p></details></article>`).join("")}</div><p class="footnote">Niedostępność dotyczy tylko Booking dla wskazanych dat i obsady. Limit obsady pochodzi z katalogu; dla zbyt dużej grupy nie wykonywano osobnego wyszukiwania. Podatki i opłaty widoczne w tabeli wliczone; kaucja Hostdomus 300 € zwrotna i osobna. Ceny mogą się zmienić. Odległości według opisów ofert, nie pomiar zimowego dojścia.</p>`;
 }
 function transportSection(): string {
   return `<section class="section transport-section" id="dojazd">${heading("OD TERMINALU POD STOK", "Ostatni odcinek. W góry.", "Pociąg z lotniska, przesiadki i autobus z Oulx. Mapa pokazuje kolejność etapów, nie dokładny przebieg torów.")}<div class="travel-duration"><div><p class="eyebrow">OD WYLOTU Z GDAŃSKA DO SESTRIERE</p><strong>około 7–9 godzin</strong><p>Wylot Wizz Air o 11:55 → orientacyjny przyjazd do Sestriere około 19:00–21:00.</p></div><div><p>Lot 2 godz. 15 min + około 50 min na bagaż + około 3–3½ godz. przejazdów i spaceru między dworcami + zapas na oczekiwanie i przesiadki.</p><p class="footnote">Szacunek dla opisanej trasy pociągami i autobusem 285, przy sprawnych połączeniach. Rozkład na wybrany termin i ostatni autobus wymagają potwierdzenia; opóźnienia mogą wydłużyć podróż. Czas nie obejmuje odprawy w Gdańsku ani dojścia do noclegu / dodatkowego dojazdu do Borgata. Wszystkie godziny lokalne — ta sama strefa czasowa.</p></div></div><div class="transport-layout"><div class="map-wrap"><div id="transport-map" class="map" aria-label="Mapa dojazdu z lotniska w Turynie do Sestriere"></div><div class="map-key"><span><i class="line rail"></i>Pociąg</span><span><i class="line metro"></i>Pieszo między dworcami</span><span><i class="line bus"></i>Autobus 285</span></div></div><div class="journey"><div class="direction-tabs" role="group" aria-label="Kierunek podróży"><button data-direction="out" aria-pressed="true">W góry</button><button data-direction="back" aria-pressed="false">Na lotnisko</button></div><div id="journey-steps"></div></div></div><div class="transport-note"><b>Godziny lotów ≠ rozkład przesiadek.</b><p>Rozkład na wybrany tydzień 2027 nie został potwierdzony. Częstotliwości opisują obecny typowy układ, nie gwarantują konkretnego kursu w sobotę. Powrót: terminal TRN o 12:00–12:30, najpóźniej 13:00.</p></div><div id="transport-costs"></div></section>`;
@@ -207,7 +237,7 @@ function transportCosts(): string {
   <details class="cost-details" open><summary>Przejazdy i bagaże — ceny na osobę w obie strony</summary><div class="transport-price-table"><div><span>Pociąg lotnisko ↔ Turyn</span><b>7,60 €</b><small>2 kierunki × 3,80 €</small></div><div><span>Pociąg Turyn ↔ Oulx</span><b>15,60–17,20 €</b><small>Szacunek 7,80–8,60 € / os. / kierunek; cena konkretnego biletu do potwierdzenia</small></div><div><span>Autobus Oulx ↔ Sestriere</span><b>7,60 €</b><small>2 kierunki × 3,80 €; aktualny kalkulator Arriva</small></div><div><span>Udział w opłacie za bagaże w autobusie 285</span><b>5,70 €</b><small>Koszt 2 pokrowców i wspólnej walizki w obie strony podzielony na 2 osoby</small></div><div><span>Spacer między dworcami</span><b>0 €</b><small>Nie doliczamy metra ani taksówki</small></div><div><span>Razem na osobę w obie strony</span><b>ok. 157–164 zł</b><small>36,50–38,10 € przy 4,30 zł/€; w kosztorysie zaokrąglona rezerwa 190 zł na osobę</small></div></div><p><b>Same dopłaty za bagaże: ok. 24,50 zł na osobę w obie strony.</b> W pociągu 0 €, o ile nie blokują przejść. Arriva nalicza 50% zwykłej taryfy za każdą sztukę ponad 50 × 30 × 25 cm; bilety bagażowe u kierowcy, przewóz zależy też od miejsca. Przy 4 osobach liczymy 2 walizki i 4 pokrowce, więc koszt na osobę pozostaje taki sam.</p><p>${external(sources.fares, "Taryfa regionu od 1.07.2026")} · ${external(sources.railBags, "Bagaż w pociągu")} · ${external(sources.busBags, "Bagaż Arriva")}</p></details>`;
 }
 function skiSection(): string {
-  return `<section class="section ski-section" id="trasy">${heading("03 / TEREN DO ODKRYCIA", "Tu jeździmy. Tu śpimy.", "Przybliż mapę, aby zobaczyć trasy i wyciągi wokół wybranego noclegu. Oznaczenia są propozycjami, nie rezerwacją.")}<div class="panorama-block"><div id="panorama-map" aria-label="Przesłana mapa tras z orientacyjnym oznaczeniem noclegów"></div><p class="footnote">Twoja mapa tras · pomarańczowe oznaczenie: wybrany nocleg; granatowe: alternatywa. Punkty wskazują orientacyjną okolicę na rysunku panoramicznym, nie dokładne położenie budynku. Dokładniejsza lokalizacja jest na mapie geograficznej poniżej.</p></div><div class="ski-map-layout"><div class="map-wrap"><div id="ski-map" class="ski-map" aria-label="Mapa tras Vialattea i proponowanych noclegów"></div><div class="ski-map-tools"><button id="show-stay">Pokaż wybrany nocleg</button><button id="show-resort">Cały region</button></div></div><aside class="ski-aside"><span class="large-number">6<span>DNI</span></span><h3>Jeden skipass.<br>Wiele kierunków.</h3><p>Sestriere, Sauze d’Oulx, Sansicario, Cesana, Claviere i Pragelato. W 6-dniowym Vialattea jest także jeden dzień rozszerzenia na Montgenèvre.</p><div id="pass-price"></div>${external(sources.skipass, "Cennik 2026/27", "text-link")}<div id="official-map-link"></div><p class="footnote">OpenSnowMap / OpenStreetMap. Mapa nie pokazuje bieżącego otwarcia tras. Przed jazdą sprawdź komunikaty operatora.</p></aside></div><p class="footnote">* 400 km to deklarowana sieć całego międzynarodowego regionu. Nie oznacza 400 km otwartych tras ani codziennego, nieograniczonego wstępu do francuskiej części w podstawowym skipassie.</p></section>`;
+  return `<section class="section ski-section" id="trasy">${heading("03 / TEREN DO ODKRYCIA", "Tu jeździmy. Tu śpimy.", "Przybliż mapę, aby zobaczyć trasy i wyciągi wokół wybranego noclegu. Oznaczenia są propozycjami, nie rezerwacją.")}<div class="panorama-block"><div id="panorama-map" aria-label="Przesłana mapa tras z orientacyjnym oznaczeniem noclegów"></div><p id="panorama-stay-note" class="footnote"></p><p class="footnote">Twoja mapa tras · pomarańczowe oznaczenie: wybrany nocleg; granatowe: alternatywa. Punkty wskazują orientacyjną okolicę na rysunku panoramicznym, nie dokładne położenie budynku. Dokładniejsza lokalizacja jest na mapie geograficznej poniżej.</p></div><div class="ski-map-layout"><div class="map-wrap"><div id="ski-map" class="ski-map" aria-label="Mapa tras Vialattea i proponowanych noclegów"></div><div class="ski-map-tools"><button id="show-stay">Pokaż wybrany nocleg</button><button id="show-resort">Cały region</button></div></div><aside class="ski-aside"><span class="large-number">6<span>DNI</span></span><h3>Jeden skipass.<br>Wiele kierunków.</h3><p>Sestriere, Sauze d’Oulx, Sansicario, Cesana, Claviere i Pragelato. W 6-dniowym Vialattea jest także jeden dzień rozszerzenia na Montgenèvre.</p><div id="pass-price"></div>${external(sources.skipass, "Cennik 2026/27", "text-link")}<div id="official-map-link"></div><p class="footnote">OpenSnowMap / OpenStreetMap. Mapa nie pokazuje bieżącego otwarcia tras. Przed jazdą sprawdź komunikaty operatora.</p></aside></div><p class="footnote">* 400 km to deklarowana sieć całego międzynarodowego regionu. Nie oznacza 400 km otwartych tras ani codziennego, nieograniczonego wstępu do francuskiej części w podstawowym skipassie.</p></section>`;
 }
 function itinerarySection(): string {
   const days = [
@@ -231,26 +261,34 @@ function itinerarySection(): string {
   return `<section class="section" id="tydzien">${heading("PLAN BEZ POŚPIECHU", "Sześć dni. Własne tempo.", "Sobota: przylot i zakwaterowanie. Kolejna sobota: powrót bez jazdy. Reszta według pogody i otwartych połączeń.")}<div class="days-grid">${days.map(([n, day, title, text]) => `<article><span class="day-number">${n}</span><p class="eyebrow">${day}</p><h3>${title}</h3><p>${text}</p></article>`).join("")}</div><div class="ready-note"><b>Przed zakupem</b><p>Potwierdźcie zimowe połączenia, dojście do wyciągu i możliwość wcześniejszego wymeldowania. Przy locie o 15:00 celem jest lotnisko do 13:00. Wybierzcie ubezpieczenie obejmujące snowboard i OC na stoku.</p></div></section>`;
 }
 function sourceSection(): string {
-  return `<section class="section sources-section" id="zrodla"><p class="eyebrow">SKĄD TE LICZBY</p><h2>Źródła i aktualność.</h2><div class="source-links">${external("./ceny-lotow-2026-11-01.md", "Odczyty cen lotów · 01.11.2026")}${external(sources.guide, "Poradnik: Turyn jako baza w Alpy")}${external(sources.airport, "Trenitalia: lotnisko")}${external(sources.link, "Vialattea Link: pociąg + autobus")}${external(sources.bus, "Arriva: rozkład 285")}${external(sources.busBags, "Arriva: bagaż")}${external(sources.skipass, "Skipassy 2026/27")}${external(sources.sports, "Wizz: sprzęt sportowy")}${external(sources.resort, "Vialattea: warunki i otwarte trasy")}</div><p>${flightFareNote} Plan podróży i zestawienie ofert, nie rezerwacja ani gwarancja ceny. Ceny dynamiczne; przeliczenie orientacyjne 4,30 zł/€. Brak potwierdzonej ceny pokazujemy wprost. Mapy wymagają połączenia z siecią.</p></section>`;
+  return `<section class="section sources-section" id="zrodla"><p class="eyebrow">SKĄD TE LICZBY</p><h2>Źródła i aktualność.</h2><div class="source-links">${external("./noclegi-2026-11-01.md", "Odczyty noclegów · 01.11.2026")}${external("./noclegi-2026-11-01.json", "Dane ofert noclegowych")}${external("./ceny-lotow-2026-11-01.md", "Odczyty cen lotów · 01.11.2026")}${external(sources.guide, "Poradnik: Turyn jako baza w Alpy")}${external(sources.airport, "Trenitalia: lotnisko")}${external(sources.link, "Vialattea Link: pociąg + autobus")}${external(sources.bus, "Arriva: rozkład 285")}${external(sources.busBags, "Arriva: bagaż")}${external(sources.skipass, "Skipassy 2026/27")}${external(sources.sports, "Wizz: sprzęt sportowy")}${external(sources.resort, "Vialattea: warunki i otwarte trasy")}</div><p>${flightFareNote} Plan podróży i zestawienie ofert, nie rezerwacja ani gwarancja ceny. Ceny dynamiczne; przeliczenie orientacyjne 4,30 zł/€. Brak potwierdzonej ceny pokazujemy wprost. Mapy wymagają połączenia z siecią.</p></section>`;
 }
 function refresh(): void {
+  if (lodgingPrice(lodgingQuote(selectedStay, week, party)) === null) selectedStay = cheapestStay()?.id ?? "";
   element("budget").innerHTML = budgetMarkup();
   element("comparison").innerHTML = comparisonMarkup();
   element("flights").innerHTML = flightsMarkup() + alternativeFlightMarkup();
   element("stays").innerHTML = staysMarkup();
   element("group-stays").innerHTML = groupStaysMarkup();
   updatePanorama();
+  element("panorama-stay-note").textContent = panoramaMarkers.has(selectedStay)
+    ? "Pomarańczowy punkt wskazuje orientacyjną okolicę wybranego noclegu."
+    : "Wybrany nocleg nie ma zweryfikowanego punktu na panoramie; nie zaznaczamy jego położenia.";
+  const mapped = calculatorStays.some((stay) => stay.id === selectedStay && stay.coords !== null);
+  const showStayButton = element("show-stay") as HTMLButtonElement;
+  showStayButton.disabled = !mapped;
+  showStayButton.textContent = mapped ? "Pokaż wybrany nocleg" : "Wybrany nocleg: brak zweryfikowanego punktu";
   const pass = weeks[week].pass;
   element("pass-price").innerHTML =
     pass === null
       ? "<p>Cena do potwierdzenia.</p>"
       : `<p class="pass-amount">${eur(pass)} <span>/ osoba online</span></p><p>${weeks[week].ski} · cena na osobę. Bez ubezpieczenia i ewentualnego nośnika.</p>`;
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-party]")
-    .forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.party) === party)));
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-week]")
-    .forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.week === week)));
+  document.querySelectorAll<HTMLButtonElement>("button[data-party]").forEach((b) => {
+    b.setAttribute("aria-pressed", String(Number(b.dataset.party) === party));
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-week]").forEach((b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.week === week));
+  });
 }
 function baseMap(id: string, center: L.LatLngExpression, zoom: number): L.Map {
   const map = L.map(id, { scrollWheelZoom: false }).setView(center, zoom);
@@ -282,13 +320,13 @@ function transportMap(): void {
     { point: [45.038469, 6.829403], title: "Oulx · autobus 285" },
     { point: [44.958, 6.878], title: "Sestriere · miejscowość docelowa" },
   ];
-  nodes.forEach((n, i) => mapMarker(map, n.point, String(i + 1), n.title));
+  nodes.forEach((n, i) => {
+    mapMarker(map, n.point, String(i + 1), n.title);
+  });
   const colors = ["#235d80", "#775b8d", "#235d80", "#e96832"];
-  nodes
-    .slice(0, -1)
-    .forEach((n, i) =>
-      L.polyline([n.point, nodes[i + 1].point], { color: colors[i], weight: 4, dashArray: "7 7" }).addTo(map),
-    );
+  nodes.slice(0, -1).forEach((n, i) => {
+    L.polyline([n.point, nodes[i + 1].point], { color: colors[i], weight: 4, dashArray: "7 7" }).addTo(map);
+  });
   map.fitBounds(L.latLngBounds(nodes.map((n) => n.point)), { padding: [32, 32] });
 }
 const resortBounds: L.LatLngBoundsExpression = [
@@ -311,8 +349,10 @@ function panoramaMap(): void {
   L.imageOverlay("./mapa-tras.jpg", bounds).addTo(map);
   map.fitBounds(bounds);
   const points: Record<string, [number, number]> = { casa: [623, 695], nube: [573, 370] };
-  stays.forEach((stay) => {
-    const marker = L.circleMarker(points[stay.id], { radius: 12, weight: 3, color: "#fff", fillOpacity: 1 }).addTo(map);
+  calculatorStays.forEach((stay) => {
+    const point = points[stay.id];
+    if (!point) return;
+    const marker = L.circleMarker(point, { radius: 12, weight: 3, color: "#fff", fillOpacity: 1 }).addTo(map);
     marker.bindTooltip(stay.name, { permanent: true, direction: "top", className: "stay-map-label" });
     marker.bindPopup(`<b>${stay.name}</b><br>Orientacyjna okolica noclegu. Propozycja, bez rezerwacji.`);
     panoramaMarkers.set(stay.id, marker);
@@ -347,7 +387,7 @@ function skiMap(): L.Map {
   return map;
 }
 function showStay(map: L.Map): void {
-  const stay = stays.find((s) => s.id === selectedStay);
+  const stay = calculatorStays.find((s) => s.id === selectedStay);
   if (stay?.coords) {
     map.setView(stay.coords, 16);
     lodgingMarkers.get(stay.id)?.openPopup();
@@ -360,22 +400,24 @@ function bindControls(map: L.Map): void {
     if (!button) return;
     if (button.dataset.party) {
       party = Number(button.dataset.party) as Party;
+      selectedStay = cheapestStay()?.id ?? "";
       refresh();
     }
     if (button.dataset.week && ["early", "late", "feb", "march"].includes(button.dataset.week)) {
       week = button.dataset.week as Week;
+      selectedStay = cheapestStay()?.id ?? "";
       refresh();
     }
-    if (button.dataset.stay) {
+    if (button.dataset.stay && lodgingPrice(lodgingQuote(button.dataset.stay, week, party)) !== null) {
       selectedStay = button.dataset.stay;
       refresh();
       showStay(map);
     }
     if (button.dataset.direction) {
       element("journey-steps").innerHTML = journeyMarkup(button.dataset.direction === "back");
-      document
-        .querySelectorAll("[data-direction]")
-        .forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+      document.querySelectorAll("[data-direction]").forEach((b) => {
+        b.setAttribute("aria-pressed", String(b === button));
+      });
     }
     if (button.id === "show-stay") showStay(map);
     if (button.id === "show-resort") map.fitBounds(resortBounds);
